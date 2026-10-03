@@ -77,3 +77,22 @@ def read_page(page_id: str) -> dict[str, Any]:
         "markdown": content.get("markdown", ""),
         "truncated": content.get("truncated", False),
     }
+
+
+def append_to_page(page_id: str, markdown: str) -> dict[str, Any]:
+    # insert_content is marked deprecated by Notion, but it is the only markdown command that
+    # appends without rewriting existing content. Pinned NOTION_VERSION keeps it stable.
+    result = _request(
+        "PATCH",
+        f"/pages/{page_id}/markdown",
+        json={
+            "type": "insert_content",
+            "insert_content": {"content": markdown, "position": {"type": "end"}},
+        },
+    )
+    # Notion returns the whole page as markdown; return a short confirmation instead.
+    return {
+        "page_id": result.get("id", page_id),
+        "status": "appended",
+        "characters_added": len(markdown),
+    }

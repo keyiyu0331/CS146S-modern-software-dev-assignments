@@ -22,5 +22,12 @@ def read_page(page_id: str) -> dict[str, Any]:
     return notion_api.read_page(page_id)
 
 
+@mcp.tool
+def append_to_page(page_id: str, markdown: str) -> dict[str, Any]:
+    """Append Markdown content to the end of a Notion page. page_id comes from search_pages.
+    Existing content is left unchanged. Returns page_id, status, characters_added."""
+    return notion_api.append_to_page(page_id, markdown)
+
+
 if __name__ == "__main__":
     mcp.run()

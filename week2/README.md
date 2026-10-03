@@ -6,11 +6,15 @@ An MCP server (FastMCP, stdio transport) that lets a coding agent search, read, 
 
 | Tool | Type | What it does |
 |---|---|---|
-| `search_pages(query, limit=10)` | read | Find pages by title. Returns `page_id`, `title`, `url`, `last_edited`. |
+| `search_pages(query, limit=10)` | read | Find pages by title (`limit` 1–100). Returns `results` (`page_id`, `title`, `url`, `last_edited`, `parent_type`, `parent_id`) and `has_more`. |
 | `read_page(page_id)` | read | Page content as Markdown, plus `title`, `url`, `truncated`. |
-| `append_to_page(page_id, markdown)` | write | Append Markdown to the end of a page. Existing content is untouched. |
+| `append_to_page(page_id, markdown, dry_run=False)` | write | Append Markdown to the end of a page; existing content is untouched. `dry_run=True` previews the page's current ending and the new content without writing. |
 
-`page_id` for `read_page` and `append_to_page` comes from `search_pages`.
+`page_id` for `read_page` and `append_to_page` comes from `search_pages`, or can be a Notion page URL.
+
+Errors are returned as MCP tool errors whose text is JSON: `error`, `message`, `retryable`, `hint`
+(and `retry_after_seconds` when rate limited). Reads retry transient failures up to 3 times; writes
+only retry on rate limits, so a failed write never duplicates content.
 
 ## Setup
 
@@ -53,3 +57,12 @@ environment's Python by absolute path:
 
 For example: `/Users/<you>/miniconda3/envs/cs146s/bin/python`. The server finds `week2/.env` relative
 to its own file, so it works from any working directory.
+
+## Tests
+
+```
+python -m pytest week2/tests
+```
+
+No network or token needed: Notion's HTTP responses are faked. Some tests call the server through an
+in-memory MCP client.

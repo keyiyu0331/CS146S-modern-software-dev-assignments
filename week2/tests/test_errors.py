@@ -35,7 +35,7 @@ def test_read_retries_5xx_then_succeeds(fake_notion):
         (503, _error_body("service_unavailable"), {}),
         (200, {"results": []}, {}),
     ]
-    assert notion_api.search_pages("anything") == []
+    assert notion_api.search_pages("anything") == {"results": [], "has_more": False}
     assert fake_notion["calls"] == 3
     assert len(fake_notion["sleeps"]) == 2
 

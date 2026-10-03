@@ -2,9 +2,11 @@
 
 import os
 import random
+import re
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, TypedDict
+from urllib.parse import urlsplit
 
 import httpx
 from dotenv import load_dotenv
@@ -14,6 +16,7 @@ NOTION_VERSION = "2026-03-11"
 
 MAX_RETRIES = 3
 MAX_SLEEP_SECONDS = 5.0
+PREVIEW_LINES = 10
 
 
 class NotionAPIError(Exception):
@@ -186,6 +189,82 @@ def _request(
     raise AssertionError("unreachable")
 
 
+
+
+# ---- Output shapes (FastMCP turns these into each tool's output schema) ----
+
+ParentType = Literal["workspace", "page", "database", "block"]
+
+
+class PageHit(TypedDict):
+    page_id: str
+    title: str
+    url: str | None
+    last_edited: str | None
+    parent_type: ParentType
+    parent_id: str | None
+
+
+class SearchResult(TypedDict):
+    results: list[PageHit]
+    has_more: bool
+
+
+class PageContent(TypedDict):
+    page_id: str
+    title: str
+    url: str | None
+    markdown: str
+    truncated: bool
+
+
+class AppendResult(TypedDict):
+    page_id: str
+    status: Literal["appended"]
+    characters_added: int
+
+
+class AppendPreview(TypedDict):
+    dry_run: Literal[True]
+    page_id: str
+    title: str
+    current_ending: str
+    will_append: str
+
+
+# ---- Helpers ----
+
+# A dashed UUID or 32 hex chars at the end of the string (Notion URLs end in the undashed ID).
+_PAGE_ID_RE = re.compile(
+    r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32})$", re.IGNORECASE
+)
+
+# Notion parent.type -> our parent_type
+_PARENT_TYPES: dict[str, ParentType] = {
+    "workspace": "workspace",
+    "page_id": "page",
+    "database_id": "database",
+    "data_source_id": "database",
+    "block_id": "block",
+}
+
+
+def normalize_page_id(value: str) -> str:
+    """Accept a page ID (dashed or not) or a Notion page URL; return the dashed ID."""
+    text = value.strip()
+    path = urlsplit(text).path if "://" in text else text
+    match = _PAGE_ID_RE.search(path.rstrip("/"))
+    if not match:
+        raise NotionAPIError(
+            "validation_error",
+            f"Could not find a Notion page ID in {value!r}.",
+            retryable=False,
+            hint="Pass a page_id from search_pages or a Notion page URL.",
+        )
+    raw = match.group(1).replace("-", "").lower()
+    return f"{raw[:8]}-{raw[8:12]}-{raw[12:16]}-{raw[16:20]}-{raw[20:]}"
+
+
 def _extract_title(page: dict[str, Any]) -> str:
     for prop in page.get("properties", {}).values():
         if prop.get("type") == "title":
@@ -194,7 +273,18 @@ def _extract_title(page: dict[str, Any]) -> str:
     return "(untitled)"
 
 
-def search_pages(query: str, limit: int = 10) -> list[dict[str, Any]]:
+def _parent(page: dict[str, Any]) -> tuple[ParentType, str | None]:
+    parent = page.get("parent", {})
+    kind = parent.get("type", "workspace")
+    parent_type = _PARENT_TYPES.get(kind, "block")
+    parent_id = None if kind == "workspace" else parent.get(kind)
+    return parent_type, parent_id
+
+
+# ---- Operations ----
+
+
+def search_pages(query: str, limit: int = 10) -> SearchResult:
     data = _request(
         "POST",
         "/search",
@@ -206,18 +296,24 @@ def search_pages(query: str, limit: int = 10) -> list[dict[str, Any]]:
         },
         retry_safe=True,
     )
-    return [
-        {
-            "page_id": page["id"],
-            "title": _extract_title(page),
-            "url": page.get("url"),
-            "last_edited": page.get("last_edited_time"),
-        }
-        for page in data.get("results", [])
-    ]
+    results: list[PageHit] = []
+    for page in data.get("results", []):
+        parent_type, parent_id = _parent(page)
+        results.append(
+            {
+                "page_id": page["id"],
+                "title": _extract_title(page),
+                "url": page.get("url"),
+                "last_edited": page.get("last_edited_time"),
+                "parent_type": parent_type,
+                "parent_id": parent_id,
+            }
+        )
+    return {"results": results, "has_more": bool(data.get("has_more", False))}
 
 
-def read_page(page_id: str) -> dict[str, Any]:
+def read_page(page_id: str) -> PageContent:
+    page_id = normalize_page_id(page_id)
     # The markdown endpoint doesn't include the title, so fetch the page object too.
     page = _request("GET", f"/pages/{page_id}", retry_safe=True)
     content = _request("GET", f"/pages/{page_id}/markdown", retry_safe=True)
@@ -230,7 +326,25 @@ def read_page(page_id: str) -> dict[str, Any]:
     }
 
 
-def append_to_page(page_id: str, markdown: str) -> dict[str, Any]:
+def preview_append(page_id: str, markdown: str) -> AppendPreview:
+    """Show where `markdown` would land without writing anything."""
+    page = read_page(page_id)
+    ending = "\n".join(page["markdown"].splitlines()[-PREVIEW_LINES:])
+    return {
+        "dry_run": True,
+        "page_id": page["page_id"],
+        "title": page["title"],
+        "current_ending": ending,
+        "will_append": markdown,
+    }
+
+
+def append_to_page(
+    page_id: str, markdown: str, dry_run: bool = False
+) -> AppendResult | AppendPreview:
+    if dry_run:
+        return preview_append(page_id, markdown)
+    page_id = normalize_page_id(page_id)
     # insert_content is marked deprecated by Notion, but it is the only markdown command that
     # appends without rewriting existing content. Pinned NOTION_VERSION keeps it stable.
     result = _request(

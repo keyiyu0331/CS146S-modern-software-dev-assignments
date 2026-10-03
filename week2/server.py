@@ -15,5 +15,12 @@ def search_pages(query: str, limit: int = 10) -> list[dict[str, Any]]:
     return notion_api.search_pages(query, limit)
 
 
+@mcp.tool
+def read_page(page_id: str) -> dict[str, Any]:
+    """Read a Notion page's content as Markdown. page_id comes from search_pages.
+    Returns page_id, title, url, markdown, truncated."""
+    return notion_api.read_page(page_id)
+
+
 if __name__ == "__main__":
     mcp.run()

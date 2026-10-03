@@ -64,3 +64,16 @@ def search_pages(query: str, limit: int = 10) -> list[dict[str, Any]]:
         }
         for page in data.get("results", [])
     ]
+
+
+def read_page(page_id: str) -> dict[str, Any]:
+    # The markdown endpoint doesn't include the title, so fetch the page object too.
+    page = _request("GET", f"/pages/{page_id}")
+    content = _request("GET", f"/pages/{page_id}/markdown")
+    return {
+        "page_id": page["id"],
+        "title": _extract_title(page),
+        "url": page.get("url"),
+        "markdown": content.get("markdown", ""),
+        "truncated": content.get("truncated", False),
+    }

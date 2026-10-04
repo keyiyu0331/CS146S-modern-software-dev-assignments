@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "notion": {
+      "type": "stdio",
+      "command": "/path/to/your/env/bin/python",
+      "args": [
+        "/path/to/modern-software-dev-assignments/week2/server.py"
+      ]
+    }
+  }
+}

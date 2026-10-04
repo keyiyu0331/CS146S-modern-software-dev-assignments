@@ -71,6 +71,13 @@ environment's Python by absolute path:
 For example: `/Users/<you>/miniconda3/envs/cs146s/bin/python`. The server finds `week2/.env` relative
 to its own file, so it works from any working directory.
 
+### Register with Claude Code
+
+Copy `week2/.mcp.json.example` to `.mcp.json` at the **repo root** (gitignored) and fill in your two
+absolute paths. Start `claude` from the repo root and approve the `notion` server when prompted;
+`/mcp` shows its status and tools. No secrets go in `.mcp.json`: the server reads `week2/.env` and the
+token cache itself.
+
 ## Tests
 
 ```

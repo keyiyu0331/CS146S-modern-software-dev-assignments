@@ -1,15 +1,14 @@
 """Plain Python wrappers around the Notion API. No MCP code lives here."""
 
-import os
 import random
 import re
 import time
-from pathlib import Path
 from typing import Any, Literal, TypedDict
 from urllib.parse import urlsplit
 
 import httpx
-from dotenv import load_dotenv
+
+import auth
 
 NOTION_API_URL = "https://api.notion.com/v1"
 NOTION_VERSION = "2026-03-11"
@@ -50,6 +49,10 @@ class NotionAPIError(Exception):
 
 
 _TRANSIENT_HINT = "Notion is temporarily unavailable. Retry shortly."
+_LOGIN_HINT = (
+    "The Notion login expired or was revoked. Ask the user to run: python week2/auth.py login. "
+    "Do not retry until they have."
+)
 
 # Keyed by Notion's error `code`: (retryable, hint).
 HINTS: dict[str, tuple[bool, str]] = {
@@ -62,10 +65,7 @@ HINTS: dict[str, tuple[bool, str]] = {
         "The page does not exist or is not shared with this integration. Use search_pages to find "
         "it, or ask the user to share it via the page's ••• menu → Connections.",
     ),
-    "unauthorized": (
-        False,
-        "The Notion token is invalid or revoked. Ask the user to update NOTION_TOKEN.",
-    ),
+    "unauthorized": (False, _LOGIN_HINT),
     "restricted_resource": (
         False,
         "The integration lacks a required capability. Ask the user to enable it in the "
@@ -102,18 +102,20 @@ _WRITE_UNCERTAIN_HINT = (
 
 
 def get_token() -> str:
-    """Return the Notion token. The only place the token is read (swapped for OAuth in Part III)."""
-    # Resolve .env relative to this file: the MCP client may launch us from any working directory.
-    load_dotenv(Path(__file__).parent / ".env")
-    token = os.environ.get("NOTION_TOKEN")
-    if not token:
+    """Return the cached OAuth access token. Never starts a login (that needs a browser)."""
+    tokens = auth.load_tokens()
+    if not tokens or not tokens.get("access_token"):
         raise NotionAPIError(
-            "not_configured",
-            "NOTION_TOKEN is not set.",
+            "not_authenticated",
+            "No Notion login is stored.",
             retryable=False,
-            hint="Ask the user to add NOTION_TOKEN to week2/.env and restart the server.",
+            hint="Ask the user to run: python week2/auth.py login. Do not retry until they have.",
         )
-    return token
+    return tokens["access_token"]
+
+
+def _reauth_required(message: str) -> NotionAPIError:
+    return NotionAPIError("reauth_required", message, retryable=False, hint=_LOGIN_HINT)
 
 
 def _error_from(code: str, message: str) -> NotionAPIError:
@@ -143,14 +145,18 @@ def _retry_after(response: httpx.Response) -> float:
 def _request(
     method: str, path: str, json: dict[str, Any] | None = None, *, retry_safe: bool
 ) -> dict[str, Any]:
-    """Call Notion, retrying transient failures.
+    """Call Notion, refreshing an expired login once and retrying transient failures.
 
     retry_safe: whether repeating the call can't cause duplicate effects. Reads pass True;
     writes pass False and are only retried on 429 (Notion rejected them without applying).
+    A 401 is retried for writes too, after a token refresh: Notion rejected it unapplied.
     """
-    headers = {"Authorization": f"Bearer {get_token()}", "Notion-Version": NOTION_VERSION}
+    token = get_token()
+    refreshed = False
+    attempt = 0
 
-    for attempt in range(MAX_RETRIES + 1):
+    while True:
+        headers = {"Authorization": f"Bearer {token}", "Notion-Version": NOTION_VERSION}
         try:
             response = httpx.request(
                 method, f"{NOTION_API_URL}{path}", headers=headers, json=json, timeout=30.0
@@ -164,6 +170,17 @@ def _request(
         else:
             if response.is_success:
                 return response.json()
+
+            if response.status_code == 401:
+                if refreshed:
+                    raise _reauth_required("Notion rejected the token even after refreshing it.")
+                try:
+                    token = auth.refresh_tokens(token)
+                except auth.AuthError as e:
+                    raise _reauth_required(str(e)) from e
+                refreshed = True
+                continue  # same request with the new token; doesn't count as a retry
+
             error = _error_from_response(response)
             uncertain_write = response.status_code >= 500
 
@@ -174,6 +191,7 @@ def _request(
                 if wait > MAX_SLEEP_SECONDS or attempt == MAX_RETRIES:
                     raise error
                 time.sleep(wait)
+                attempt += 1
                 continue
 
         if not error.retryable:
@@ -185,10 +203,7 @@ def _request(
         if attempt == MAX_RETRIES:
             raise error
         time.sleep(0.5 * 2**attempt + random.uniform(0, 0.25))
-
-    raise AssertionError("unreachable")
-
-
+        attempt += 1
 
 
 # ---- Output shapes (FastMCP turns these into each tool's output schema) ----

@@ -27,6 +27,9 @@ PIPFILE.lock
 
 # Environment variables
 .env
+
+# OAuth token cache (week2 Notion MCP server)
+.notion_tokens.json
 .venv
 env/
 venv/

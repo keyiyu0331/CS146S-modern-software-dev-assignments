@@ -18,19 +18,32 @@ only retry on rate limits, so a failed write never duplicates content.
 
 ## Setup
 
-1. Create an internal integration at https://www.notion.so/profile/integrations and copy its secret.
-   It needs the read, update, and insert content capabilities.
-2. In Notion, open the page(s) the agent may use: **••• → Connections → add your integration**.
-   Child pages are shared automatically.
-3. Create `week2/.env` (gitignored):
-   ```
-   NOTION_TOKEN=ntn_...
-   ```
-4. Install dependencies from the repo root, inside the Python environment you'll use
+The server authenticates with OAuth 2.0 (authorization-code flow) through a Notion **public connection**.
+
+1. In the Notion Developer portal (https://app.notion.com/developers/connections), go to
+   **Public connections → Create new connection**:
+   - Redirect URI: `http://localhost:8765/callback`
+   - Installation scope: **Selected workspaces only** (your workspace)
+   - Capabilities: **Read content**, **Update content**, **Insert content**; no comments, no user information.
+     Read is used by `search_pages`/`read_page`; update + insert by `append_to_page`.
+2. Copy `week2/.env.example` to `week2/.env` (gitignored) and fill in the **OAuth client ID** and
+   **client secret** from the connection's Configuration tab.
+3. Install dependencies from the repo root, inside the Python environment you'll use
    (e.g. `conda activate cs146s`):
    ```
    poetry install
    ```
+4. Log in once. This opens Notion's consent screen in your browser; pick the pages the agent may use:
+   ```
+   python week2/auth.py login
+   ```
+   Tokens are saved to `week2/.notion_tokens.json` (gitignored, owner-only permissions).
+   `python week2/auth.py status` shows the connected workspace; `python week2/auth.py logout` revokes
+   the token and deletes the cache.
+
+The server never opens a browser. When Notion rejects the access token (401), it refreshes it with the
+refresh token, saves the new pair (refresh tokens rotate), and retries the request once. If refreshing
+fails, tools return a `reauth_required` error telling the user to run `login` again.
 
 ## Run
 

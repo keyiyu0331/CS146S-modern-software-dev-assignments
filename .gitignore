@@ -27,6 +27,12 @@ PIPFILE.lock
 
 # Environment variables
 .env
+
+# OAuth token cache (week2 Notion MCP server)
+.notion_tokens.json
+
+# Local MCP client config (machine-specific paths); see week2/.mcp.json.example
+.mcp.json
 .venv
 env/
 venv/

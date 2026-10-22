@@ -1,7 +1,7 @@
 # Week 4 Write-up
 
 **Repo chosen** and link to your fork:
-> [iamkun/dayjs](https://github.com/iamkun/dayjs). Fork: TODO (add fork URL once pushed). The file is committed on the fork's `dev` branch, which is the repo's default branch.
+> [iamkun/dayjs](https://github.com/iamkun/dayjs). Fork: https://github.com/keyiyu0331/dayjs. The file is committed on the fork's `dev` branch, which is the repo's default branch.
 
 **File you wrote** (`AGENTS.md` or `CLAUDE.md`):
 > `CLAUDE.md`, at the root of the fork and copied to `week4/CLAUDE.md`. I chose it over `AGENTS.md` because Part III runs Claude Code, which loads `CLAUDE.md` automatically.
